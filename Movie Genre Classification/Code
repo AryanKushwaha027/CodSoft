@@ -1,1 +1,124 @@
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.feature_extraction.text import TfidfVectorizer
+from wordcloud import WordCloud
+from sklearn.preprocessing import LabelEncoder
+from sklearn.svm import LinearSVC
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 
+def load_data(file_path, sep=':::', columns=['ID', 'TITLE', 'GENRE', 'DESCRIPTION']):
+    return pd.read_csv(file_path, sep=sep, names=columns, engine='python')
+
+train_data = load_data("train_data.txt")
+test_data = load_data("test_data.txt")
+test_solution_data = load_data("test_data_solution.txt")
+
+def display_data_info(data, name):
+    print(f"{name} Data Head:")
+    display(data.head())
+    print(f"{name} Data Shape: {data.shape}\n")
+
+display_data_info(train_data, "Train")
+display_data_info(test_data, "Test")
+display_data_info(test_solution_data, "Test Solution")
+
+train_data['DESCRIPTION_length'] = train_data['DESCRIPTION'].apply(len)
+
+plt.figure(figsize=(12, 8))
+train_genre_counts = train_data['GENRE'].value_counts()
+plt.pie(train_genre_counts, labels=train_genre_counts.index, autopct='%1.1f%%', startangle=140, colors=sns.color_palette("tab20", len(train_genre_counts)))
+plt.title('Distribution of Movie Genres')
+plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+plt.show()
+
+all_descriptions = " ".join(train_data['DESCRIPTION'].dropna())
+
+wordcloud = WordCloud(width=800, height=400, background_color='white', max_words=200, collocations=False).generate(all_descriptions)
+
+plt.figure(figsize=(15, 8))
+plt.imshow(wordcloud, interpolation='bilinear')
+plt.axis('off')
+plt.title('Word Cloud for Movie Descriptions')
+plt.show()
+
+plt.figure(figsize=(20, 10))
+sns.boxplot(x='GENRE', y='DESCRIPTION_length', data=train_data)
+plt.title('Boxplot of Description Length by Genre')
+plt.xticks(rotation=45)
+plt.xlabel('Genre')
+plt.ylabel('Description Length')
+plt.show()
+
+genres = train_data['GENRE'].str.get_dummies()
+
+corr_matrix = genres.corr()
+
+plt.figure(figsize=(15, 10))
+sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', linewidths=.5)
+plt.title('Heatmap of Genre Correlation')
+plt.show()
+
+
+top_genres = train_data['GENRE'].value_counts().head(10)
+plt.figure(figsize=(20, 10))
+top_genres.plot(kind='barh', color='cyan')
+plt.title('Top 10 Most Frequent Genres')
+plt.xlabel('Number of Movies')
+plt.ylabel('Genre')
+plt.gca().invert_yaxis()
+plt.show()
+
+train_data['DESCRIPTION'].fillna("", inplace=True)
+test_data['DESCRIPTION'].fillna("", inplace=True)
+
+vectorizer = TfidfVectorizer(stop_words='english', max_features=100000)
+X_train = vectorizer.fit_transform(train_data['DESCRIPTION'])
+X_test = vectorizer.transform(test_data['DESCRIPTION'])
+
+label_encoder = LabelEncoder()
+y_train = label_encoder.fit_transform(train_data['GENRE'])
+y_test = label_encoder.transform(test_solution_data['GENRE'])
+
+X_train_sub, X_val, y_train_sub, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
+
+def train_and_evaluate_model(model, X_train_sub, y_train_sub, X_val, y_val):
+    model.fit(X_train_sub, y_train_sub)
+    y_val_pred = model.predict(X_val)
+    print(f"Validation Accuracy: {accuracy_score(y_val, y_val_pred)}")
+    print(f"Validation Classification Report:\n{classification_report(y_val, y_val_pred)}")
+    return model
+
+svc_model = LinearSVC()
+svc_model = train_and_evaluate_model(svc_model, X_train_sub, y_train_sub, X_val, y_val)
+
+def evaluate_test_set(model, X_test, y_test):
+    y_test_pred = model.predict(X_test)
+    print(f"Test Accuracy: {accuracy_score(y_test, y_test_pred)}")
+    print(f"Test Classification Report:\n{classification_report(y_test, y_test_pred)}")
+    return y_test_pred
+
+evaluate_test_set(svc_model, X_test, y_test)
+
+nb_model = MultinomialNB()
+nb_model = train_and_evaluate_model(nb_model, X_train_sub, y_train_sub, X_val, y_val)
+evaluate_test_set(nb_model, X_test, y_test)
+
+lr_model = LogisticRegression(max_iter=500)
+lr_model = train_and_evaluate_model(lr_model, X_train_sub, y_train_sub, X_val, y_val)
+evaluate_test_set(lr_model, X_test, y_test)
+
+def plot_confusion_matrix(y_true, y_pred, labels):
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(12, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=labels, yticklabels=labels)
+    plt.xlabel('Predicted Genre')
+    plt.ylabel('True Genre')
+    plt.title('Confusion Matrix')
+    plt.show()
+
+plot_confusion_matrix(y_val, svc_model.predict(X_val), label_encoder.classes_)
